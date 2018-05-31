@@ -49,7 +49,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/defilan/go-infoblox"
+	infoblox "github.com/defilan/go-infoblox"
 	"github.com/hashicorp/terraform/helper/schema"
 )
 
@@ -80,6 +80,11 @@ func resourceInfobloxIP() *schema.Resource {
 				Required: false,
 			},
 
+			"hostname": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: false,
+			},
 			"exclude": &schema.Schema{
 				Type:     schema.TypeSet,
 				Elem:     &schema.Schema{Type: schema.TypeString},
@@ -102,7 +107,9 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*infoblox.Client)
 	excludedAddresses := buildExcludedAddressesArray(d)
 
-	if cidr, ok := d.GetOk("cidr"); ok {
+	if hostname, ok := d.GetOk("hostname"); ok {
+		result, err = getIPFromHostname(client, hostname)
+	} else if cidr, ok := d.GetOk("cidr"); ok {
 		result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
 	} else if ipRange, ok := d.GetOk("ip_range"); ok {
 		result, err = getNextAvailableIPFromRange(client, ipRange.(string))
@@ -116,6 +123,25 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 	d.Set("ipaddress", result)
 
 	return nil
+}
+
+func getIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
+	var (
+		result string
+		err    error
+	)
+
+	record, err := client.GetRecordHost(hostname, nil)
+	if err != nil {
+		return err
+	}
+	result := make([]map[string]interface{}, 1)
+	for _, v := range record.Ipv4Addrs {
+		i := make(map[string]interface{})
+		i["address"] = v.Ipv4Addr
+		result = append(result, i)
+	}
+	return result, err
 }
 
 func getNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
