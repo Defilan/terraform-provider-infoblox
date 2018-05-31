@@ -108,7 +108,7 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 	excludedAddresses := buildExcludedAddressesArray(d)
 
 	if hostname, ok := d.GetOk("hostname"); ok {
-		result, err = getIPFromHostname(client, hostname)
+		result, err = getIPFromHostname(client, hostname.(string))
 	} else if cidr, ok := d.GetOk("cidr"); ok {
 		result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
 	} else if ipRange, ok := d.GetOk("ip_range"); ok {
@@ -127,21 +127,22 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 
 func getIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
 	var (
-		result string
-		err    error
+		err      error
+		returner string
 	)
 
 	record, err := client.GetRecordHost(hostname, nil)
 	if err != nil {
-		return err
+		return "No Host", err
 	}
-	result := make([]map[string]interface{}, 1)
+	// result := make([]map[string]interface{}, 1)
 	for _, v := range record.Ipv4Addrs {
 		i := make(map[string]interface{})
 		i["address"] = v.Ipv4Addr
-		result = append(result, i)
+		// returner = append(result, i)
+		returner = v.Ipv4Addr
 	}
-	return result, err
+	return returner, err
 }
 
 func getNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
