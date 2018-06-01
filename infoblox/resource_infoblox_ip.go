@@ -127,22 +127,19 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 
 func getIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
 	var (
-		err      error
-		returner string
+		err    error
+		result string
 	)
 
-	record, err := client.GetRecordHost(hostname, nil)
+	record, err := client.FindRecordHost(hostname)
 	if err != nil {
 		return "No Host", err
 	}
-	// result := make([]map[string]interface{}, 1)
-	for _, v := range record.Ipv4Addrs {
-		i := make(map[string]interface{})
-		i["address"] = v.Ipv4Addr
-		// returner = append(result, i)
-		returner = v.Ipv4Addr
+
+	for _, v := range record[0].Ipv4Addrs {
+		result = v.Ipv4Addr
 	}
-	return returner, err
+	return result, err
 }
 
 func getNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
