@@ -94,6 +94,15 @@ func infobloxRecordHost() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
+			"cidr": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+			},
+			"ipaddress": &schema.Schema{
+				Type: schema.TypeString,
+				Computed: true,
+				Required: false,
+			},
 		},
 	}
 }
@@ -162,7 +171,7 @@ func hostObjectFromAttributes(d *schema.ResourceData) infoblox.RecordHostObject 
 	if attr, ok := d.GetOk("view"); ok {
 		hostObject.View = attr.(string)
 	}
-	if attr, ok := d.GetOk("ipv4addr"); ok {
+	if attr, ok := d.GetOk("cidr"); ok {
 		hostObject.Ipv4Addrs = ipv4sFromList(attr.([]interface{}))
 	}
 	if attr, ok := d.GetOk("ipv6addr"); ok {
@@ -176,6 +185,31 @@ func resourceInfobloxHostRecordCreate(d *schema.ResourceData, meta interface{}) 
 	client := meta.(*infoblox.Client)
 
 	record := url.Values{}
+	var (
+		result string
+		err    error
+	)
+
+	excludedAddresses := buildExcludedAddressesArray(d)
+
+	if hostname, ok := d.GetOk("hostname"); ok {
+		result, err = getIPFromHostname(client, hostname.(string))
+	}
+	if err != nil {
+		if cidr, ok := d.GetOk("cidr"); ok {
+			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
+		} else if ipRange, ok := d.GetOk("ip_range"); ok {
+			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	d.SetId(result)
+	d.Set("ipaddress", result)
+
 	hostObject := hostObjectFromAttributes(d)
 
 	log.Printf("[DEBUG] Creating Infoblox Host record with configuration: %#v", hostObject)
@@ -297,6 +331,40 @@ func resourceInfobloxHostRecordDelete(d *schema.ResourceData, meta interface{}) 
 	if err != nil {
 		return fmt.Errorf("error deleting Infoblox Host record: %s", err.Error())
 	}
+
+	return nil
+}
+
+func infobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
+	if err := validateIPData(d); err != nil {
+		return err
+	}
+
+	var (
+		result string
+		err    error
+	)
+
+	client := meta.(*infoblox.Client)
+	excludedAddresses := buildExcludedAddressesArray(d)
+
+	if hostname, ok := d.GetOk("hostname"); ok {
+		result, err = getIPFromHostname(client, hostname.(string))
+	}
+	if err != nil {
+		if cidr, ok := d.GetOk("cidr"); ok {
+			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
+		} else if ipRange, ok := d.GetOk("ip_range"); ok {
+			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	d.SetId(result)
+	d.Set("ipaddress", result)
 
 	return nil
 }

@@ -109,10 +109,13 @@ func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 
 	if hostname, ok := d.GetOk("hostname"); ok {
 		result, err = getIPFromHostname(client, hostname.(string))
-	} else if cidr, ok := d.GetOk("cidr"); ok {
-		result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
-	} else if ipRange, ok := d.GetOk("ip_range"); ok {
-		result, err = getNextAvailableIPFromRange(client, ipRange.(string))
+	}
+	if err != nil {
+		if cidr, ok := d.GetOk("cidr"); ok {
+			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
+		} else if ipRange, ok := d.GetOk("ip_range"); ok {
+			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
+		}
 	}
 
 	if err != nil {
@@ -132,13 +135,16 @@ func getIPFromHostname(client *infoblox.Client, hostname string) (string, error)
 	)
 
 	record, err := client.FindRecordHost(hostname)
-	if err != nil {
-		return "No Host", err
+	if len(record) <= 0 {
+		return "", fmt.Errorf("[INFO] no host found")
 	}
 
-	for _, v := range record[0].Ipv4Addrs {
-		result = v.Ipv4Addr
+	if len(record) > 0 {
+		for _, v := range record[0].Ipv4Addrs {
+			result = v.Ipv4Addr
+		}
 	}
+
 	return result, err
 }
 
