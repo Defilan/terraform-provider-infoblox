@@ -14,7 +14,7 @@ func hostIPv4Schema() map[string]*schema.Schema {
 	return map[string]*schema.Schema{
 		"address": {
 			Type:     schema.TypeString,
-			Required: true,
+			Optional: true,
 		},
 		"configure_for_dhcp": {
 			Type:     schema.TypeBool,
@@ -25,6 +25,10 @@ func hostIPv4Schema() map[string]*schema.Schema {
 			Optional: true,
 		},
 		"mac": {
+			Type:     schema.TypeString,
+			Optional: true,
+		},
+		"cidr": {
 			Type:     schema.TypeString,
 			Optional: true,
 		},
@@ -94,26 +98,17 @@ func infobloxRecordHost() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
-			"cidr": &schema.Schema{
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"ipaddress": &schema.Schema{
-				Type: schema.TypeString,
-				Computed: true,
-				Required: false,
-			},
 		},
 	}
 }
 
-func ipv4sFromList(ipv4s []interface{}) []infoblox.HostIpv4Addr {
+func ipv4sFromList(ipv4s []interface{}, d *schema.ResourceData, meta interface{}) []infoblox.HostIpv4Addr {
 	result := make([]infoblox.HostIpv4Addr, 0, len(ipv4s))
 	for _, v := range ipv4s {
 		ipMap := v.(map[string]interface{})
 		i := infoblox.HostIpv4Addr{}
 
-		i.Ipv4Addr = ipMap["address"].(string)
+		i.Ipv4Addr = infobloxNextIP(d, meta)
 
 		if val, ok := ipMap["configure_for_dhcp"]; ok {
 			i.ConfigureForDHCP = val.(bool)
@@ -153,7 +148,7 @@ func ipv6sFromList(ipv6s []interface{}) []infoblox.HostIpv6Addr {
 	return result
 }
 
-func hostObjectFromAttributes(d *schema.ResourceData) infoblox.RecordHostObject {
+func hostObjectFromAttributes(d *schema.ResourceData, meta interface{}) infoblox.RecordHostObject {
 	hostObject := infoblox.RecordHostObject{}
 	if attr, ok := d.GetOk("name"); ok {
 		hostObject.Name = attr.(string)
@@ -171,8 +166,8 @@ func hostObjectFromAttributes(d *schema.ResourceData) infoblox.RecordHostObject 
 	if attr, ok := d.GetOk("view"); ok {
 		hostObject.View = attr.(string)
 	}
-	if attr, ok := d.GetOk("cidr"); ok {
-		hostObject.Ipv4Addrs = ipv4sFromList(attr.([]interface{}))
+	if attr, ok := d.GetOk("ipv4addr"); ok {
+		hostObject.Ipv4Addrs = ipv4sFromList(attr.([]interface{}), d, meta)
 	}
 	if attr, ok := d.GetOk("ipv6addr"); ok {
 		hostObject.Ipv6Addrs = ipv6sFromList(attr.([]interface{}))
@@ -185,32 +180,7 @@ func resourceInfobloxHostRecordCreate(d *schema.ResourceData, meta interface{}) 
 	client := meta.(*infoblox.Client)
 
 	record := url.Values{}
-	var (
-		result string
-		err    error
-	)
-
-	excludedAddresses := buildExcludedAddressesArray(d)
-
-	if hostname, ok := d.GetOk("hostname"); ok {
-		result, err = getIPFromHostname(client, hostname.(string))
-	}
-	if err != nil {
-		if cidr, ok := d.GetOk("cidr"); ok {
-			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
-		} else if ipRange, ok := d.GetOk("ip_range"); ok {
-			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
-		}
-	}
-
-	if err != nil {
-		return err
-	}
-
-	d.SetId(result)
-	d.Set("ipaddress", result)
-
-	hostObject := hostObjectFromAttributes(d)
+	hostObject := hostObjectFromAttributes(d, meta)
 
 	log.Printf("[DEBUG] Creating Infoblox Host record with configuration: %#v", hostObject)
 	opts := &infoblox.Options{
@@ -300,7 +270,7 @@ func resourceInfobloxHostRecordUpdate(d *schema.ResourceData, meta interface{}) 
 	}
 
 	record := url.Values{}
-	hostObject := hostObjectFromAttributes(d)
+	hostObject := hostObjectFromAttributes(d, meta)
 
 	log.Printf("[DEBUG] Updating Infoblox Host record with configuration: %#v", hostObject)
 
@@ -335,36 +305,32 @@ func resourceInfobloxHostRecordDelete(d *schema.ResourceData, meta interface{}) 
 	return nil
 }
 
-func infobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
-	if err := validateIPData(d); err != nil {
-		return err
-	}
-
+func infobloxNextIP(d *schema.ResourceData, meta interface{}) string {
 	var (
 		result string
 		err    error
 	)
+	if err = validateIPData(d); err != nil {
+		return "[ERROR] failure"
+	}
 
 	client := meta.(*infoblox.Client)
 	excludedAddresses := buildExcludedAddressesArray(d)
 
-	if hostname, ok := d.GetOk("hostname"); ok {
-		result, err = getIPFromHostname(client, hostname.(string))
+	if name, ok := d.GetOk("name"); ok {
+		result, err = GetIPFromHostname(client, name.(string))
 	}
 	if err != nil {
 		if cidr, ok := d.GetOk("cidr"); ok {
-			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
+			result, err = GetNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
 		} else if ipRange, ok := d.GetOk("ip_range"); ok {
-			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
+			result, err = GetNextAvailableIPFromRange(client, ipRange.(string))
 		}
 	}
 
 	if err != nil {
-		return err
+		return "[ERROR] failure"
 	}
 
-	d.SetId(result)
-	d.Set("ipaddress", result)
-
-	return nil
+	return result
 }
