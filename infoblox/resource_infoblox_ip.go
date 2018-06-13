@@ -55,7 +55,7 @@ import (
 
 func resourceInfobloxIP() *schema.Resource {
 	return &schema.Resource{
-		Create: ResourceInfobloxIPCreate,
+		Create: resourceInfobloxIPCreate,
 		Read:   resourceInfobloxIPRead,
 		Update: resourceInfobloxIPUpdate,
 		Delete: resourceInfobloxIPDelete,
@@ -94,7 +94,7 @@ func resourceInfobloxIP() *schema.Resource {
 	}
 }
 
-func ResourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
+func resourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 	if err := validateIPData(d); err != nil {
 		return err
 	}
@@ -102,33 +102,35 @@ func ResourceInfobloxIPCreate(d *schema.ResourceData, meta interface{}) error {
 	var (
 		result string
 		err    error
+		err2   error
 	)
 
 	client := meta.(*infoblox.Client)
 	excludedAddresses := buildExcludedAddressesArray(d)
 
 	if hostname, ok := d.GetOk("hostname"); ok {
-		result, err = GetIPFromHostname(client, hostname.(string))
+		result, err2 = getIPFromHostname(client, hostname.(string))
 	}
-	if err != nil {
+	if err2 != nil {
 		if cidr, ok := d.GetOk("cidr"); ok {
-			result, err = GetNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
+			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
 		} else if ipRange, ok := d.GetOk("ip_range"); ok {
-			result, err = GetNextAvailableIPFromRange(client, ipRange.(string))
+			result, err = getNextAvailableIPFromRange(client, ipRange.(string))
 		}
 	}
 
 	if err != nil {
 		return err
 	}
-
+	excludedAddresses = append(excludedAddresses, result)
+	d.Set("exclude", excludedAddresses)
 	d.SetId(result)
 	d.Set("ipaddress", result)
 
 	return nil
 }
 
-func GetIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
+func getIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
 	var (
 		err    error
 		result string
@@ -148,7 +150,7 @@ func GetIPFromHostname(client *infoblox.Client, hostname string) (string, error)
 	return result, err
 }
 
-func GetNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
+func getNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
 	var (
 		result string
 		err    error
@@ -178,7 +180,7 @@ func GetNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAd
 	return result, err
 }
 
-func GetNextAvailableIPFromRange(client *infoblox.Client, ipRange string) (string, error) {
+func getNextAvailableIPFromRange(client *infoblox.Client, ipRange string) (string, error) {
 	var (
 		result string
 		err    error
