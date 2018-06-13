@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strings"
 
 	infoblox "github.com/defilan/go-infoblox"
 	"github.com/hashicorp/terraform/helper/schema"
@@ -14,7 +15,7 @@ func hostIPv4Schema() map[string]*schema.Schema {
 	return map[string]*schema.Schema{
 		"address": {
 			Type:     schema.TypeString,
-			Optional: true,
+			Computed: true,
 		},
 		"configure_for_dhcp": {
 			Type:     schema.TypeBool,
@@ -104,11 +105,16 @@ func infobloxRecordHost() *schema.Resource {
 
 func ipv4sFromList(ipv4s []interface{}, d *schema.ResourceData, meta interface{}) []infoblox.HostIpv4Addr {
 	result := make([]infoblox.HostIpv4Addr, 0, len(ipv4s))
+	ip, _ := infobloxNextIP(d, meta)
+
 	for _, v := range ipv4s {
 		ipMap := v.(map[string]interface{})
 		i := infoblox.HostIpv4Addr{}
+		// if err != nil {
+		// 	return nil
+		// }
 
-		i.Ipv4Addr = infobloxNextIP(d, meta)
+		i.Ipv4Addr = ip
 
 		if val, ok := ipMap["configure_for_dhcp"]; ok {
 			i.ConfigureForDHCP = val.(bool)
@@ -122,6 +128,8 @@ func ipv4sFromList(ipv4s []interface{}, d *schema.ResourceData, meta interface{}
 
 		result = append(result, i)
 	}
+	d.Set("address", ip)
+	d.Set("ipv4addr", result)
 	return result
 }
 
@@ -305,32 +313,77 @@ func resourceInfobloxHostRecordDelete(d *schema.ResourceData, meta interface{}) 
 	return nil
 }
 
-func infobloxNextIP(d *schema.ResourceData, meta interface{}) string {
+func infobloxNextIP(d *schema.ResourceData, meta interface{}) (string, error) {
 	var (
 		result string
 		err    error
+		err2   error
 	)
-	if err = validateIPData(d); err != nil {
-		return "[ERROR] failure"
-	}
 
 	client := meta.(*infoblox.Client)
 	excludedAddresses := buildExcludedAddressesArray(d)
 
 	if name, ok := d.GetOk("name"); ok {
-		result, err = GetIPFromHostname(client, name.(string))
+		result, err2 = getIPFromHostname(client, name.(string))
 	}
-	if err != nil {
+	if err2 != nil {
 		if cidr, ok := d.GetOk("cidr"); ok {
-			result, err = GetNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
-		} else if ipRange, ok := d.GetOk("ip_range"); ok {
-			result, err = GetNextAvailableIPFromRange(client, ipRange.(string))
+			result, err = getNextAvailableIPFromCIDR(client, cidr.(string), excludedAddresses)
 		}
 	}
 
 	if err != nil {
-		return "[ERROR] failure"
+		return "", fmt.Errorf("[ERROR] could not get next ip")
+	}
+	return result, err
+}
+
+func getIPFromHostname(client *infoblox.Client, hostname string) (string, error) {
+	var (
+		err    error
+		result string
+	)
+
+	record, err := client.FindRecordHost(hostname)
+	if len(record) <= 0 {
+		return "", fmt.Errorf("[INFO] no host found")
 	}
 
-	return result
+	if len(record) > 0 {
+		for _, v := range record[0].Ipv4Addrs {
+			result = v.Ipv4Addr
+		}
+	}
+
+	return result, err
+}
+
+func getNextAvailableIPFromCIDR(client *infoblox.Client, cidr string, excludedAddresses []string) (string, error) {
+	var (
+		result string
+		err    error
+		ou     map[string]interface{}
+	)
+
+	network, err := getNetworks(client, cidr)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "Authorization Required") {
+			return "", fmt.Errorf("[ERROR] Authentication Error, Please check your username/password ")
+		}
+	}
+
+	if len(network) == 0 {
+		err = fmt.Errorf("[ERROR] Empty response from client.Network().find. Is %s a valid network?", cidr)
+	}
+
+	if err == nil {
+		ou, err = client.NetworkObject(network[0]["_ref"].(string)).NextAvailableIP(1, excludedAddresses)
+		result = getMapValueAsString(ou, "ips")
+		if result == "" {
+			err = fmt.Errorf("[ERROR] Unable to determine IP address from response")
+		}
+	}
+
+	return result, err
 }
