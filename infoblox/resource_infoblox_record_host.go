@@ -15,7 +15,7 @@ func hostIPv4Schema() map[string]*schema.Schema {
 	return map[string]*schema.Schema{
 		"address": {
 			Type:     schema.TypeString,
-			Computed: true,
+			Required: true,
 		},
 		"configure_for_dhcp": {
 			Type:     schema.TypeBool,
@@ -26,10 +26,6 @@ func hostIPv4Schema() map[string]*schema.Schema {
 			Optional: true,
 		},
 		"mac": {
-			Type:     schema.TypeString,
-			Optional: true,
-		},
-		"cidr": {
 			Type:     schema.TypeString,
 			Optional: true,
 		},
@@ -105,16 +101,12 @@ func infobloxRecordHost() *schema.Resource {
 
 func ipv4sFromList(ipv4s []interface{}, d *schema.ResourceData, meta interface{}) []infoblox.HostIpv4Addr {
 	result := make([]infoblox.HostIpv4Addr, 0, len(ipv4s))
-	ip, _ := infobloxNextIP(d, meta)
 
 	for _, v := range ipv4s {
 		ipMap := v.(map[string]interface{})
 		i := infoblox.HostIpv4Addr{}
-		// if err != nil {
-		// 	return nil
-		// }
 
-		i.Ipv4Addr = ip
+		i.Ipv4Addr = ipMap["address"].(string)
 
 		if val, ok := ipMap["configure_for_dhcp"]; ok {
 			i.ConfigureForDHCP = val.(bool)
@@ -128,7 +120,6 @@ func ipv4sFromList(ipv4s []interface{}, d *schema.ResourceData, meta interface{}
 
 		result = append(result, i)
 	}
-	d.Set("address", ip)
 	d.Set("ipv4addr", result)
 	return result
 }
