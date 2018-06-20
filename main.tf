@@ -6,29 +6,21 @@ provider "infoblox" {
     usecookies = false
 }
 
-/* resource "infoblox_record_host" "host" { */
-/*     name = "seadvmaherinfotest007" */
-/*     comment = "Bozo test" */
-/*     ipv4addr { */
-/*     address = "10.80.102.48" */
-/*   } */
-/*     configure_for_dns = false */
-/* } */
-
-resource "infoblox_ip" "ip" {
-  hostname = "seadvtesttst01"
-  cidr = "10.80.100.0/22"
+resource "infoblox_record_host" "host" {
+  count = 2 
+    name = "${format("seadvgk%02d", count.index + 1)}"
+    comment = "Bozo test"
+    ipv4addr {
+      address = "func:nextavailableip:10.80.100.0/22"
+  }
+  lifecycle {
+    ignore_changes = ["ipv4addr", "ipv6addr", "comment", "view"]
+  }
+    configure_for_dns = false
 }
 
-/* resource "infoblox_record_host" "test" { */
-/*   name = "test_name" */
-/*   ipv4addr { */
-/*     address = "${infoblox_ip.ip.ipaddress}" */
-/*   } */
-/*   configure_for_dns = false */
-/*   comment = "test comment" */
-/* } */
+output "ip" {
+  depends_on = ["infoblox_record_host.host"]
+  value = "${infoblox_record_host.host.*.returnaddress}"
+}
 
-/* output "ip" { */
-/*  value = "${infoblox_ip.ip.ipaddress}" */
-/* } */

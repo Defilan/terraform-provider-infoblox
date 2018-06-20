@@ -94,6 +94,10 @@ func infobloxRecordHost() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
+			"returnaddress": &schema.Schema{
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 		},
 	}
 }
@@ -115,7 +119,6 @@ func ipv4sFromList(ipv4s []interface{}) []infoblox.HostIpv4Addr {
 		if val, ok := ipMap["mac"]; ok {
 			i.MAC = val.(string)
 		}
-
 		result = append(result, i)
 	}
 	return result
@@ -186,8 +189,13 @@ func resourceInfobloxHostRecordCreate(d *schema.ResourceData, meta interface{}) 
 	if err != nil {
 		return fmt.Errorf("error creating infoblox Host record: %s", err.Error())
 	}
-
 	d.SetId(recordID)
+	newrecord, err := client.GetRecordHost(recordID, nil)
+	if &newrecord.Ipv4Addrs != nil {
+		for _, v := range newrecord.Ipv4Addrs {
+			d.Set("returnaddress", v.Ipv4Addr)
+		}
+	}
 	log.Printf("[INFO] Infoblox Host record created with ID: %s", d.Id())
 	return nil
 }
